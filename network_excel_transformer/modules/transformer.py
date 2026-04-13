@@ -55,48 +55,133 @@ def extract_code_site_from_nodeb_name(nodeb_name):
         return match.group()
     return None
 
+def extract_city_name_from_cell(cell_name):
+    """Extrait le nom de la ville du Cell Name (avant le tiret)."""
+    if pd.isna(cell_name):
+        return None
+    cell_str = str(cell_name).strip()
+    # Prend la partie avant le premier tiret
+    if '-' in cell_str:
+        return cell_str.split('-')[0].strip()
+    return cell_str
+
+
 def transform_cell_data(df, site_df_raw):
-    """Transforme les données de cellule et les fusionne avec les sites."""
+    """Transforme les données de cellule et les fusionne avec les sites par code ET nom de ville."""
     # Afficher les colonnes réelles pour debug
     print(f"🔍 Colonnes du fichier source (cellules): {list(df.columns)}")
+    
+    # Vérifier si DataFrame vide
+    if len(df) == 0 or len(df.columns) == 0:
+        print(f"⚠️  WARNING: DataFrame cellules est VIDE!")
+        print(f"   - Nombre de lignes: {len(df)}")
+        print(f"   - Nombre de colonnes: {len(df.columns)}")
+        raise ValueError(
+            f"❌ Le fichier des cellules est VIDE ou mal détecté!\n"
+            f"   Vérifiez que vous avez importé le bon fichier source avec les deux feuilles"
+            f" (sites ET cellules).\n"
+            f"   Colonnes trouvées: {list(df.columns)}"
+        )
+    
     df = df.copy()
     
     # Mappings flexibles pour chaque colonne
     cell_name_col = find_matching_column(df, ['Cell Name', 'Cell_Name', 'cellule', 'cell'])
-    dl_prim_col = find_matching_column(df, ['DL Primary Scrambling Code', 'DL_Primary_Scrambling_Code', 'cellId', 'code'])
-    downlink_col = find_matching_column(df, ['Downlink UARFCN', 'Downlink_UARFCN', 'Layer_type', 'layer'])
+    dl_prim_col = find_matching_column(df, ['DL Primary Scrambling Code', 'DL_Primary_Scrambling_Code', 'cellId', 'code', 'dl code', 'dl', 'scrambling'])
+    downlink_col = find_matching_column(df, ['Downlink UARFCN', 'Downlink_UARFCN', 'Layer_type', 'layer', 'uarfcn'])
     nodeb_col = find_matching_column(df, ['NodeB Name', 'NodeB_Name', 'nodeb', 'name'])
     
     print(f"Colonnes détectées: Cell Name={cell_name_col}, DL Prim={dl_prim_col}, Downlink={downlink_col}, NodeB={nodeb_col}")
     
     if not all([cell_name_col, dl_prim_col, downlink_col, nodeb_col]):
-        raise ValueError(f"Colonnes requises non trouvées. Colonne NodeB requise: {nodeb_col}. Présentes: {list(df.columns)}")
+        missing = []
+        if not cell_name_col: missing.append("Cell Name (cellule)")
+        if not dl_prim_col: missing.append("DL Primary/Code")
+        if not downlink_col: missing.append("Downlink/Layer/UARFCN")
+        if not nodeb_col: missing.append("NodeB Name")
+        
+        raise ValueError(
+            f"❌ Colonnes requises non trouvées!\n"
+            f"   Colonnes manquantes: {', '.join(missing)}\n"
+            f"   Colonnes trouvées: {list(df.columns)}\n"
+            f"   Vérifiez que le fichier source contient les cellules dans une feuille avec les bonnes en-têtes."
+        )
     
     # Sélectionner et renommer les colonnes nécessaires
     df_selected = df[[cell_name_col, dl_prim_col, downlink_col, nodeb_col]].copy()
     df_selected.columns = ['nom cellule', 'cellId', 'Layer_type', 'NodeB Name']
     
+    # Extraire le nom de ville du Cell Name (avant le tiret)
+    df_selected['nom_ville'] = df_selected['nom cellule'].apply(extract_city_name_from_cell)
+    print(f"❔ Noms de villes extraits des cellules: {df_selected['nom_ville'].unique()}")
+    
     # Extraire le code site du NodeB Name
     df_selected['code site'] = df_selected['NodeB Name'].apply(extract_code_site_from_nodeb_name)
+    print(f"❔ Codes sites extraits: {df_selected['code site'].unique()}")
     
-    print(f"Codes sites extraits: {df_selected['code site'].unique()}")
-    
-    # Fusionner avec les données site brutes pour récupérer nom site
+    # Créer un mapping site: code site + nom site
     site_mapping = site_df_raw[['MTN ID', 'MTN Name']].copy()
-    site_mapping.columns = ['code site', 'nom site_original']
-    site_mapping['nom site'] = '3G_' + site_mapping['nom site_original'].astype(str)
-    site_mapping = site_mapping[['code site', 'nom site']].drop_duplicates()
+    site_mapping.columns = ['code site', 'MTN Name']
+    site_mapping['nom_ville_site'] = site_mapping['MTN Name'].astype(str).str.strip().str.lower()
+    site_mapping['nom site'] = '3G_' + site_mapping['MTN Name'].astype(str)
+    print(f"\n📍 Mapping sites disponibles:")
+    print(f"   Codes sites: {site_mapping['code site'].unique()}")
+    print(f"   Noms de villes (sites): {site_mapping['nom_ville_site'].unique()}")
     
-    df_selected = df_selected.merge(site_mapping, on='code site', how='left')
+    # Normaliser les noms de villes des cellules pour la comparaison
+    df_selected['nom_ville_normalized'] = df_selected['nom_ville'].astype(str).str.strip().str.lower()
     
-    print(f"Fusion sites-cellules: {len(df_selected)} cellules fusionnées")
+    # Fusion 1: Par code site
+    print(f"\n🔗 Fusion par CODE SITE...")
+    df_merged = df_selected.merge(
+        site_mapping[['code site', 'nom site']], 
+        on='code site', 
+        how='left'
+    )
+    
+    # Fusion 2: Par nom de ville (pour les cellules orphelines - sans code site correspondant)
+    print(f"🔗 Fusion par NOM DE VILLE...")
+    orphaned = df_merged[df_merged['nom site'].isna()].copy()
+    
+    if len(orphaned) > 0:
+        print(f"   ⚠️  {len(orphaned)} cellules orphelines détectées (pas de code site correspondant)")
+        
+        # Essayer de matcher par nom de ville
+        orphaned_with_site = orphaned.merge(
+            site_mapping[['nom_ville_site', 'nom site']].drop_duplicates(), 
+            left_on='nom_ville_normalized', 
+            right_on='nom_ville_site',
+            how='left',
+            suffixes=('', '_y')
+        )
+        
+        # Remplacer les valeurs manquantes dans df_merged
+        merged_indices = df_merged[df_merged['nom site'].isna()].index
+        if len(merged_indices) > 0 and 'nom site_y' in orphaned_with_site.columns:
+            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site_y'].values
+        elif len(merged_indices) > 0 and 'nom site' in orphaned_with_site.columns:
+            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site'].values
+    
+    # Supprimer les cellules orphelines restantes
+    still_missing = df_merged[df_merged['nom site'].isna()]
+    if len(still_missing) > 0:
+        print(f"\n⚠️  {len(still_missing)} cellules ORPHELINES SUPPRIMÉES (pas de site correspondant):")
+        for idx, row in still_missing.iterrows():
+            print(f"   🗑️  Suppression: {row['nom cellule']} | Ville: {row['nom_ville']} | Code site: {row['code site']}")
+        
+        # Supprimer les cellules orphelines
+        df_merged = df_merged[df_merged['nom site'].notna()].copy()
+        print(f"\n✅ {len(df_merged)} cellules conservées après suppression des orphelines")
+    else:
+        print(f"\n✅ Toutes les cellules ({len(df_merged)}) ont un site correspondant!")
     
     # Ajouter la colonne WCDMA_Cell
-    df_selected['WCDMA_Cell'] = 'WCDMA_Cell'
+    df_merged['WCDMA_Cell'] = 'WCDMA_Cell'
     
-    # Colonnes nécessaires pour la feuille 3G
+    # Colonnes nécessaires pour la feuille 3G (sans STATUT)
     cols = ['WCDMA_Cell', 'code site', 'nom cellule', 'cellId', 'Layer_type']
-    result = df_selected[cols].copy()
+    result = df_merged[cols].copy()
+
     
     # 🔤 TRIER PAR NOM DE CELLULE (ORDRE ALPHABÉTIQUE)
     result = result.sort_values('nom cellule').reset_index(drop=True)

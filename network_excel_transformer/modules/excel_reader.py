@@ -8,39 +8,41 @@ def read_excel_file(file, sheet_name=0):
 
 def detect_sheet_type(df):
     """Détecte si une feuille contient des sites ou des cellules."""
-    cols_lower = [str(col).lower() for col in df.columns]
+    cols_lower = [str(col).lower().strip() for col in df.columns]
     
     # Indicateurs de sites (données géographiques)
     site_indicators = {
-        'mtn id': 2, 'id site': 2, 'code site': 2,
+        'mtn id': 2, 'id site': 2, 'code site': 2, 'code': 2,
         'lat': 2, 'latitude': 2,
         'long': 2, 'longitude': 2,
-        'localit': 1, 'région': 1, 'ville': 1, 'nom site': 1
+        'localit': 1, 'région': 1, 'ville': 1, 'nom site': 1, 'site name': 1,
     }
     
     # Indicateurs de cellules (paramètres techniques UMTS)
     cell_indicators = {
-        'cell name': 2, 'cell id': 2, 'nom de cellule': 2, 'nom cellule': 2,
-        'dl primary': 2, 'downlink': 2, 'uarfcn': 2,
-        'nodeb': 2, 'rrc id': 1, 'scrambling code': 2,
-        'power': 1, 'transmit': 1
+        'cell name': 2, 'cell id': 2, 'nom de cellule': 2, 'nom cellule': 2, 'cellule': 2,
+        'dl primary': 2, 'downlink': 2, 'uarfcn': 2, 'dl code': 2, 'dl': 1,
+        'nodeb': 2, 'nodeb name': 2, 'rrc id': 1, 'scrambling code': 2, 'scrambling': 2,
+        'power': 1, 'transmit': 1, 'layer': 1
     }
     
     site_score = 0
     cell_score = 0
     
     # Calculer les scores
-    for ind, weight in site_indicators.items():
-        if any(ind in col for col in cols_lower):
-            site_score += weight
-            print(f"   Site indicator: {ind} (+{weight})")
+    for col in cols_lower:
+        for ind, weight in site_indicators.items():
+            if ind in col or col in ind:
+                site_score += weight
+                print(f"      Site match: '{col}' (weight {weight})")
     
-    for ind, weight in cell_indicators.items():
-        if any(ind in col for col in cols_lower):
-            cell_score += weight
-            print(f"   Cell indicator: {ind} (+{weight})")
+    for col in cols_lower:
+        for ind, weight in cell_indicators.items():
+            if ind in col or col in ind:
+                cell_score += weight
+                print(f"      Cell match: '{col}' (weight {weight})")
     
-    print(f"   Scores: Site={site_score}, Cell={cell_score}")
+    print(f"      Scores finaux: Site={site_score}, Cell={cell_score}")
     
     if cell_score > site_score:
         return 'cells'
@@ -48,6 +50,7 @@ def detect_sheet_type(df):
         return 'sites'
     else:
         return 'unknown'
+
 
 def read_umts_source(file_path):
     """Lit le fichier UMTS CELL Info.xls et retourne sites et cellules."""
@@ -61,41 +64,65 @@ def read_umts_source(file_path):
     # Parcourir les feuilles et détecter le type
     for sheet_idx, sheet_name in enumerate(xls.sheet_names):
         df = pd.read_excel(xls, sheet_name=sheet_idx)
+        print(f"\n📋 Analyse feuille {sheet_idx} ({sheet_name}):")
+        print(f"   - Taille: {len(df)} lignes, {len(df.columns)} colonnes")
+        print(f"   - Colonnes: {list(df.columns)}")
+        
+        # Ignorer les feuilles vides
+        if len(df) == 0 or len(df.columns) == 0:
+            print(f"   ⚠️  Feuille vide, ignorée")
+            continue
+            
         sheet_type = detect_sheet_type(df)
-        print(f"   Feuille {sheet_idx} ({sheet_name}): {sheet_type} - {len(df)} lignes, {len(df.columns)} colonnes")
-        print(f"      Colonnes: {list(df.columns)[:5]}...")  # Afficher les 5 premières colonnes
+        print(f"   - Type détecté: {sheet_type}")
         
         if sheet_type == 'sites' and sites_df is None:
             sites_df = df
-            print(f"      ✅ Sites détectés: {len(sites_df)} lignes")
+            print(f"   ✅ Sites détectés: {len(sites_df)} lignes")
         elif sheet_type == 'cells' and cells_df is None:
             cells_df = df
-            print(f"      ✅ Cellules détectées: {len(cells_df)} lignes")
+            print(f"   ✅ Cellules détectées: {len(cells_df)} lignes")
+        elif sheet_type == 'unknown':
+            print(f"   ℹ️  Type inconnu - vérifier les colonnes")
     
     # Si les rôles sont encore indéterminés, utiliser la taille pour guider
     if sites_df is None or cells_df is None:
+        print(f"\n⚠️  Attribution par défaut (fondée sur la taille)...")
         # Généralement, il y a plus de cellules que de sites
-        all_dfs = [(pd.read_excel(xls, sheet_name=i), i) for i in range(len(xls.sheet_names))]
+        all_dfs = [(pd.read_excel(xls, sheet_name=i), i, xls.sheet_names[i]) 
+                   for i in range(len(xls.sheet_names)) 
+                   if len(pd.read_excel(xls, sheet_name=i)) > 0]
         
-        if sites_df is None or cells_df is None:
-            # Assigner par taille : plus de lignes = cellules
+        if len(all_dfs) > 0:
             sorted_dfs = sorted(all_dfs, key=lambda x: len(x[0]))
             
             if sites_df is None and len(sorted_dfs) >= 1:
                 sites_df = sorted_dfs[0][0]
-                print(f"⚠️  Sites assignés à la feuille {sorted_dfs[0][1]} par défaut (plus petit)")
+                print(f"   Sites assignés à feuille '{sorted_dfs[0][2]}' (plus petit: {len(sites_df)} lignes)")
             
             if cells_df is None and len(sorted_dfs) >= 2:
                 cells_df = sorted_dfs[-1][0]
-                print(f"⚠️  Cellules assignées à la feuille {sorted_dfs[-1][1]} par défaut (plus grand)")
+                print(f"   Cellules assignées à feuille '{sorted_dfs[-1][2]}' (plus grand: {len(cells_df)} lignes)")
+            elif cells_df is None and len(sorted_dfs) == 1 and sites_df is None:
+                # S'il n'y a qu'une feuille, l'utiliser pour les deux
+                cells_df = sorted_dfs[0][0]
+                print(f"   Cellules = Feuille unique '{sorted_dfs[0][2]}' ({len(cells_df)} lignes)")
     
-    # Fallback final
+    # Fallback final pour éviter les DataFrames vides
     if sites_df is None:
-        sites_df = pd.read_excel(xls, sheet_name=0)
+        print(f"\n⚠️  Aucun site détecté, utilisation feuille 0 par défaut")
+        sites_df = pd.read_excel(xls, sheet_name=0) if len(xls.sheet_names) > 0 else pd.DataFrame()
+    
     if cells_df is None:
+        print(f"\n⚠️  Aucune cellule détectée, utilisation feuille 1 par défaut")
         cells_df = pd.read_excel(xls, sheet_name=1) if len(xls.sheet_names) > 1 else pd.DataFrame()
     
+    print(f"\n✅ Résumé lecture:")
+    print(f"   Sites: {len(sites_df)} lignes, {len(sites_df.columns)} colonnes")
+    print(f"   Cellules: {len(cells_df)} lignes, {len(cells_df.columns)} colonnes")
+    
     return sites_df, cells_df
+
 
 def read_database_template(file_path):
     """Lit le template 2G3G4G_Cell Info.xlsx."""

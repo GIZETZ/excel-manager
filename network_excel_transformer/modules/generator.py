@@ -1,70 +1,108 @@
 # Module: generator.py
 
 import pandas as pd
-from openpyxl import load_workbook
+from openpyxl import load_workbook, Workbook
+from openpyxl.styles import PatternFill, Font, Alignment
 import os
 
-def generate_final_excel(site_df, cell_df, template_path, output_path):
-    """Génère le fichier Excel final en ajoutant les données à la suite de la feuille 3G du template."""
+def generate_sites_excel(site_df, template_path, output_path):
+    """Génère un fichier Excel NOUVEAU contenant UNIQUEMENT les données SITES transformées."""
     
-    # Charger le workbook template
-    wb = load_workbook(template_path)
+    # Créer un nouveau workbook
+    wb = Workbook()
     
-    # Vérifier si la feuille 3G existe
-    if '3G' in wb.sheetnames:
-        ws = wb['3G']
-        print(f"✅ Feuille 3G trouvée : {ws.max_row} lignes existantes")
-    else:
-        ws = wb.create_sheet('3G')
-        print(f"✅ Nouvelle feuille 3G créée")
+    # Supprimer la feuille par défaut et créer la feuille 3G
+    if 'Sheet' in wb.sheetnames:
+        wb.remove(wb['Sheet'])
     
-    # Déterminer la ligne de départ (après les données existantes)
-    start_row = ws.max_row + 1
-    if ws.max_row == 1:  # Feuille vide
-        start_row = 1
+    ws = wb.create_sheet('3G')
+    print(f"✅ Nouvelle feuille 3G créée (vierge)")
     
-    print(f"📝 Ajout des données à partir de la ligne {start_row}")
+    print(f"📝 Écriture des SITES dans le nouveau fichier")
     
-    # Écrire les données sites (Partie 1 - WCDMA_Site)
-    row = start_row
+    # Écrire les en-têtes
+    for col_idx, col_name in enumerate(site_df.columns, 1):
+        ws.cell(row=1, column=col_idx, value=col_name)
+    print(f"   Entêtes sites écrites à la ligne 1")
     
-    # Écrire les entêtes que si on commence à la ligne 1
-    if start_row == 1:
-        for col_idx, col_name in enumerate(site_df.columns, 1):
-            ws.cell(row=row, column=col_idx, value=col_name)
-        row += 1
-        print(f"   Entête sites écrite à la ligne 1")
-    
-    # Données sites
-    first_site_row = row
-    for _, row_data in site_df.iterrows():
+    # Écrire les données sites
+    for row_idx, (_, row_data) in enumerate(site_df.iterrows(), 2):
         for col_idx, value in enumerate(row_data, 1):
-            ws.cell(row=row, column=col_idx, value=value)
-        row += 1
-    print(f"   ✅ {len(site_df)} sites ajoutés (lignes {first_site_row}-{row-1})")
+            ws.cell(row=row_idx, column=col_idx, value=value)
     
-    # Ligne vide de séparation
-    row += 1
-    
-    # Écrire les données cellules (Partie 2 - WCDMA_Cell)
-    # Entête cellules
-    first_cell_entete_row = row
-    for col_idx, col_name in enumerate(cell_df.columns, 1):
-        ws.cell(row=row, column=col_idx, value=col_name)
-    row += 1
-    
-    # Données cellules
-    first_cell_row = row
-    for _, row_data in cell_df.iterrows():
-        for col_idx, value in enumerate(row_data, 1):
-            ws.cell(row=row, column=col_idx, value=value)
-        row += 1
-    print(f"   ✅ {len(cell_df)} cellules ajoutées (lignes {first_cell_row}-{row-1})")
+    print(f"   ✅ {len(site_df)} sites écrits (lignes 2-{len(site_df)+1})")
     
     # Sauvegarder le fichier
     os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
     wb.save(output_path)
-    print(f"✅ Fichier sauvegardé: {output_path}")
+    print(f"✅ Fichier SITES créé (nouveau): {output_path}")
     
     return output_path
+
+
+def generate_cells_excel(cell_df, template_path, output_path):
+    """Génère un fichier Excel NOUVEAU contenant les données CELLULES (orphelines supprimées)."""
+    
+    # Créer un nouveau workbook
+    wb = Workbook()
+    
+    # Supprimer la feuille par défaut et créer la feuille 3G
+    if 'Sheet' in wb.sheetnames:
+        wb.remove(wb['Sheet'])
+    
+    ws = wb.create_sheet('3G')
+    print(f"✅ Nouvelle feuille 3G créée (vierge)")
+    
+    print(f"📝 Écriture des CELLULES dans le nouveau fichier")
+    
+    # Définir les couleurs pour les en-têtes
+    header_fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")  # Bleu foncé
+    header_font = Font(color="FFFFFF", bold=True)
+    
+    # Écrire les en-têtes
+    for col_idx, col_name in enumerate(cell_df.columns, 1):
+        cell = ws.cell(row=1, column=col_idx, value=col_name)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    print(f"   Entêtes cellules écrites à la ligne 1")
+    
+    # Écrire les données cellules
+    for row_idx, (_, row_data) in enumerate(cell_df.iterrows(), 2):
+        for col_idx, value in enumerate(row_data, 1):
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.alignment = Alignment(horizontal="left", vertical="center")
+    
+    # Ajuster la largeur des colonnes
+    for col_idx in range(1, len(cell_df.columns) + 1):
+        ws.column_dimensions[chr(64 + col_idx)].width = 20
+    
+    print(f"   ✅ {len(cell_df)} cellules écrites (lignes 2-{len(cell_df)+1})")
+    
+    # Sauvegarder le fichier
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    wb.save(output_path)
+    print(f"✅ Fichier CELLULES créé (nouveau): {output_path}")
+    
+    return output_path
+
+
+
+
+def generate_final_excel(site_df, cell_df, output_path_sites, output_path_cells):
+    """Génère deux fichiers Excel neufs: un pour les SITES et un pour les CELLULES (données transformées uniquement)."""
+    
+    print(f"🔄 Génération des deux fichiers de sortie...")
+    
+    # Générer fichier SITES
+    print(f"\n📍 Génération fichier SITES...")
+    generate_sites_excel(site_df, None, output_path_sites)
+    
+    # Générer fichier CELLULES
+    print(f"\n📍 Génération fichier CELLULES...")
+    generate_cells_excel(cell_df, None, output_path_cells)
+    
+    print(f"\n✅ Deux fichiers créés (neufs) avec succès!")
+    
+    return output_path_sites, output_path_cells
 
