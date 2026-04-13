@@ -190,3 +190,120 @@ def transform_cell_data(df, site_df_raw):
     return result
 
 
+def extract_code_site_from_bts_name(bts_name):
+    """Extrait le code site du nom BTS 2G (ex: 2G_CI02693_Lahoudigan -> CI02693)."""
+    if pd.isna(bts_name):
+        return None
+    match = re.search(r'CI\d{5}', str(bts_name))
+    if match:
+        return match.group()
+    return None
+
+
+def transform_gsm_cell_data(df, site_df_raw):
+    """Transforme les données de cellule GSM 2G et les fusionne avec les sites."""
+    print(f"🔍 Colonnes du fichier source (cellules GSM 2G): {list(df.columns)}")
+    
+    # Vérifier si DataFrame vide
+    if len(df) == 0 or len(df.columns) == 0:
+        raise ValueError(
+            f"❌ Le fichier des cellules GSM est VIDE ou mal détecté!\n"
+            f"   Colonnes trouvées: {list(df.columns)}"
+        )
+    
+    df = df.copy()
+    
+    # Mappings flexibles pour les colonnes GSM 2G
+    cell_name_col = find_matching_column(df, ['Cell Name', 'Cell_Name', 'cellule', 'cell'])
+    cell_id_col = find_matching_column(df, ['Cell ID', 'Cell_ID', 'cell id', 'cellId'])
+    bts_name_col = find_matching_column(df, ['BTS Name', 'BTS_Name', 'bts', 'bts name'])
+    bcch_freq_col = find_matching_column(df, ['BCCH Frequency', 'BCCH_Frequency', 'bcch', 'frequency'])
+    
+    print(f"Colonnes détectées: Cell Name={cell_name_col}, Cell ID={cell_id_col}, BTS Name={bts_name_col}, BCCH={bcch_freq_col}")
+    
+    if not all([cell_name_col, cell_id_col, bts_name_col]):
+        missing = []
+        if not cell_name_col: missing.append("Cell Name")
+        if not cell_id_col: missing.append("Cell ID")
+        if not bts_name_col: missing.append("BTS Name")
+        
+        raise ValueError(
+            f"❌ Colonnes requises non trouvées pour GSM 2G!\n"
+            f"   Colonnes manquantes: {', '.join(missing)}\n"
+            f"   Colonnes trouvées: {list(df.columns)}"
+        )
+    
+    # Sélectionner et renommer les colonnes
+    df_selected = df[[cell_name_col, cell_id_col, bts_name_col]].copy()
+    df_selected.columns = ['nom cellule', 'cellId', 'BTS Name']
+    
+    # Ajouter BCCH Frequency si trouvée
+    if bcch_freq_col:
+        df_selected['BCCH Frequency'] = df[[bcch_freq_col]]
+    else:
+        df_selected['BCCH Frequency'] = 'N/A'
+    
+    # Extraire le nom de ville du Cell Name (avant le tiret)
+    df_selected['nom_ville'] = df_selected['nom cellule'].apply(extract_city_name_from_cell)
+    print(f"❔ Noms de villes extraits des cellules: {df_selected['nom_ville'].unique()}")
+    
+    # Extraire le code site du BTS Name
+    df_selected['code site'] = df_selected['BTS Name'].apply(extract_code_site_from_bts_name)
+    print(f"❔ Codes sites extraits: {df_selected['code site'].unique()}")
+    
+    # Créer un mapping site
+    site_mapping = site_df_raw[['MTN ID', 'MTN Name']].copy()
+    site_mapping.columns = ['code site', 'MTN Name']
+    site_mapping['nom_ville_site'] = site_mapping['MTN Name'].astype(str).str.strip().str.lower()
+    site_mapping['nom site'] = '2G_' + site_mapping['MTN Name'].astype(str)
+    print(f"\n📍 Mapping sites disponibles:")
+    print(f"   Codes sites: {site_mapping['code site'].unique()}")
+    
+    # Normaliser les noms de villes
+    df_selected['nom_ville_normalized'] = df_selected['nom_ville'].astype(str).str.strip().str.lower()
+    
+    # Fusion par code site
+    print(f"\n🔗 Fusion par CODE SITE...")
+    df_merged = df_selected.merge(
+        site_mapping[['code site', 'nom site']], 
+        on='code site', 
+        how='left'
+    )
+    
+    # Fusion par nom de ville pour les orphelines
+    orphaned = df_merged[df_merged['nom site'].isna()].copy()
+    if len(orphaned) > 0:
+        print(f"   ⚠️  {len(orphaned)} cellules orphelines détectées")
+        orphaned_with_site = orphaned.merge(
+            site_mapping[['nom_ville_site', 'nom site']].drop_duplicates(), 
+            left_on='nom_ville_normalized', 
+            right_on='nom_ville_site',
+            how='left',
+            suffixes=('', '_y')
+        )
+        merged_indices = df_merged[df_merged['nom site'].isna()].index
+        if len(merged_indices) > 0 and 'nom site_y' in orphaned_with_site.columns:
+            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site_y'].values
+    
+    # Supprimer les cellules orphelines
+    still_missing = df_merged[df_merged['nom site'].isna()]
+    if len(still_missing) > 0:
+        print(f"\n⚠️  {len(still_missing)} cellules GSM ORPHELINES SUPPRIMÉES:")
+        df_merged = df_merged[df_merged['nom site'].notna()].copy()
+        print(f"✅ {len(df_merged)} cellules GSM conservées")
+    
+    # Ajouter la colonne GSM_Cell
+    df_merged['GSM_Cell'] = 'GSM_Cell'
+    
+    # Colonnes finales
+    cols = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency']
+    result = df_merged[cols].copy()
+    
+    # Trier par nom
+    result = result.sort_values('nom cellule').reset_index(drop=True)
+    
+    print(f"✅ Transformation cellules GSM: {len(result)} lignes (triées par nom)")
+    return result
+
+
+

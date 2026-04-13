@@ -129,3 +129,70 @@ def read_database_template(file_path):
     return file_path
 
 
+def read_gsm_source(file_path):
+    """Lit le fichier 2G GSM et retourne sites et cellules."""
+    # Lire toutes les feuilles
+    xls = pd.ExcelFile(file_path)
+    print(f"📄 Feuilles détectées: {xls.sheet_names}")
+    
+    sites_df = None
+    cells_df = None
+    
+    # Parcourir les feuilles et détecter le type
+    for sheet_idx, sheet_name in enumerate(xls.sheet_names):
+        df = pd.read_excel(xls, sheet_name=sheet_idx)
+        print(f"\n📋 Analyse feuille {sheet_idx} ({sheet_name}):")
+        print(f"   - Taille: {len(df)} lignes, {len(df.columns)} colonnes")
+        print(f"   - Colonnes: {list(df.columns)[:5]}...")  # Afficher les 5 premières colonnes
+        
+        # Ignorer les feuilles vides
+        if len(df) == 0 or len(df.columns) == 0:
+            print(f"   ⚠️  Feuille vide, ignorée")
+            continue
+        
+        # Détecter par présence de colonnes spécifiques
+        cols_lower = [str(col).lower().strip() for col in df.columns]
+        
+        is_site = any('mtn' in col or 'latitude' in col or 'longitude' in col for col in cols_lower)
+        is_gsm_cell = any('bts' in col or 'bsc' in col or 'local cell' in col for col in cols_lower)
+        
+        if is_site and sites_df is None:
+            sites_df = df
+            print(f"   ✅ Sites détectés: {len(sites_df)} lignes")
+        elif is_gsm_cell and cells_df is None:
+            cells_df = df
+            print(f"   ✅ Cellules GSM détectées: {len(cells_df)} lignes")
+    
+    # Fallback par taille
+    if sites_df is None or cells_df is None:
+        print(f"\n⚠️  Attribution par défaut (fondée sur la taille)...")
+        all_dfs = [(pd.read_excel(xls, sheet_name=i), i, xls.sheet_names[i]) 
+                   for i in range(len(xls.sheet_names)) 
+                   if len(pd.read_excel(xls, sheet_name=i)) > 0]
+        
+        if len(all_dfs) > 0:
+            sorted_dfs = sorted(all_dfs, key=lambda x: len(x[0]))
+            
+            if sites_df is None and len(sorted_dfs) >= 1:
+                sites_df = sorted_dfs[0][0]
+                print(f"   Sites assignés à feuille '{sorted_dfs[0][2]}' (plus petit: {len(sites_df)} lignes)")
+            
+            if cells_df is None and len(sorted_dfs) >= 2:
+                cells_df = sorted_dfs[-1][0]
+                print(f"   Cellules assignées à feuille '{sorted_dfs[-1][2]}' (plus grand: {len(cells_df)} lignes)")
+    
+    # Fallback final
+    if sites_df is None:
+        print(f"\n⚠️  Aucun site détecté, utilisation feuille 0 par défaut")
+        sites_df = pd.read_excel(xls, sheet_name=0) if len(xls.sheet_names) > 0 else pd.DataFrame()
+    
+    if cells_df is None:
+        print(f"\n⚠️  Aucune cellule GSM détectée, utilisation feuille 1 par défaut")
+        cells_df = pd.read_excel(xls, sheet_name=1) if len(xls.sheet_names) > 1 else pd.DataFrame()
+    
+    print(f"\n✅ Résumé lecture:")
+    print(f"   Sites: {len(sites_df)} lignes, {len(sites_df.columns)} colonnes")
+    print(f"   Cellules GSM: {len(cells_df)} lignes, {len(cells_df.columns)} colonnes")
+    
+    return sites_df, cells_df
+

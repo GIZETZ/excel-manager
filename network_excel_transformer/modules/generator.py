@@ -3,6 +3,7 @@
 import pandas as pd
 from openpyxl import load_workbook, Workbook
 from openpyxl.styles import PatternFill, Font, Alignment
+from openpyxl.utils import get_column_letter
 import os
 
 def generate_sites_excel(site_df, template_path, output_path):
@@ -103,6 +104,87 @@ def generate_final_excel(site_df, cell_df, output_path_sites, output_path_cells)
     generate_cells_excel(cell_df, None, output_path_cells)
     
     print(f"\n✅ Deux fichiers créés (neufs) avec succès!")
+    
+    return output_path_sites, output_path_cells
+
+
+def generate_gsm_sites_excel(site_df, template_path, output_path):
+    """Génère le fichier SITES pour 2G GSM."""
+    print(f"📝 Création workbook SITES GSM 2G...")
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SITES"
+    
+    # Ajouter les en-têtes avec formatage bleu
+    headers = ['GSM_Site', 'nom site', 'code site', 'lat', 'long']
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.value = header
+        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajouter les données
+    for row_idx, row in enumerate(site_df.values, 2):
+        for col_idx, value in enumerate(row, 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajuster les largeurs de colonnes
+    for col_idx in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 20
+    
+    wb.save(output_path)
+    print(f"   ✅ Fichier SITES GSM créé: {output_path}")
+
+
+def generate_gsm_cells_excel(cell_df, template_path, output_path):
+    """Génère le fichier CELLULES pour 2G GSM."""
+    print(f"📝 Création workbook CELLULES GSM 2G...")
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CELLS"
+    
+    # En-têtes avec formatage bleu
+    headers = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency']
+    for col_idx, header in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.value = header
+        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajouter les données
+    for row_idx, row in enumerate(cell_df.values, 2):
+        for col_idx, value in enumerate(row, 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajuster les largeurs
+    for col_idx in range(1, len(headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 20
+    
+    wb.save(output_path)
+    print(f"   ✅ Fichier CELLULES GSM créé: {output_path}")
+
+
+def generate_gsm_excel(site_df, cell_df, output_path_sites, output_path_cells):
+    """Orchestre la génération des fichiers GSM 2G."""
+    print(f"\n🎯 Génération fichiers 2G GSM...")
+    
+    # Générer fichier SITES
+    print(f"\n📍 Génération fichier SITES...")
+    generate_gsm_sites_excel(site_df, None, output_path_sites)
+    
+    # Générer fichier CELLULES
+    print(f"\n📍 Génération fichier CELLULES...")
+    generate_gsm_cells_excel(cell_df, None, output_path_cells)
+    
+    print(f"\n✅ Deux fichiers GSM 2G créés avec succès!")
     
     return output_path_sites, output_path_cells
 
