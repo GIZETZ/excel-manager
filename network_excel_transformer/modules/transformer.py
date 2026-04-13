@@ -115,78 +115,66 @@ def transform_cell_data(df, site_df_raw):
     df_selected['nom_ville'] = df_selected['nom cellule'].apply(extract_city_name_from_cell)
     print(f"❔ Noms de villes extraits des cellules: {df_selected['nom_ville'].unique()}")
     
-    # Extraire le code site du NodeB Name
+    # Extraire le code site du NodeB Name (pour logging seulement)
     df_selected['code site'] = df_selected['NodeB Name'].apply(extract_code_site_from_nodeb_name)
     print(f"❔ Codes sites extraits: {df_selected['code site'].unique()}")
     
-    # Créer un mapping site: code site + nom site
+    # Créer un mapping site basé sur le MTN Name (clé de fusion)
     site_mapping = site_df_raw[['MTN ID', 'MTN Name']].copy()
-    site_mapping.columns = ['code site', 'MTN Name']
-    site_mapping['nom_ville_site'] = site_mapping['MTN Name'].astype(str).str.strip().str.lower()
-    site_mapping['nom site'] = '3G_' + site_mapping['MTN Name'].astype(str)
-    print(f"\n📍 Mapping sites disponibles:")
-    print(f"   Codes sites: {site_mapping['code site'].unique()}")
-    print(f"   Noms de villes (sites): {site_mapping['nom_ville_site'].unique()}")
+    site_mapping.columns = ['code site', 'nom_ville_mtn']  # MTN Name = clé de fusion
+    
+    # Normaliser le MTN Name pour la comparaison
+    site_mapping['nom_ville_mtn_normalized'] = site_mapping['nom_ville_mtn'].astype(str).str.strip().str.lower()
+    site_mapping['nom site'] = '3G_' + site_mapping['nom_ville_mtn'].astype(str)
+    
+    print(f"\n📍 Mapping sites disponibles (par MTN Name):")
+    print(f"   MTN Names: {site_mapping['nom_ville_mtn'].unique()}")
+    print(f"   Sites finaux: {site_mapping['nom site'].unique()}")
     
     # Normaliser les noms de villes des cellules pour la comparaison
     df_selected['nom_ville_normalized'] = df_selected['nom_ville'].astype(str).str.strip().str.lower()
     
-    # Fusion 1: Par code site
-    print(f"\n🔗 Fusion par CODE SITE...")
+    # Fusion principale: Par MTN Name (ville extraite du Cell Name)
+    print(f"\n🔗 Fusion par MTN NAME (ville du Cell Name ↔ MTN Name du site)...")
     df_merged = df_selected.merge(
-        site_mapping[['code site', 'nom site']], 
-        on='code site', 
+        site_mapping[['nom_ville_mtn_normalized', 'nom site']], 
+        left_on='nom_ville_normalized', 
+        right_on='nom_ville_mtn_normalized',
         how='left'
     )
     
-    # Fusion 2: Par nom de ville (pour les cellules orphelines - sans code site correspondant)
-    print(f"🔗 Fusion par NOM DE VILLE...")
-    orphaned = df_merged[df_merged['nom site'].isna()].copy()
+    # Identifier les cellules orphelines
+    print(f"🔗 Vérification des orphelines...")
+    orphaned = df_merged[df_merged['nom site'].isna()]
     
+    # Identifier les cellules orphelines
+    print(f"🔗 Vérification des orphelines...")
+    orphaned = df_merged[df_merged['nom site'].isna()]
+    
+    # Supprimer les cellules orphelines (pas de matching avec MTN Name)
     if len(orphaned) > 0:
-        print(f"   ⚠️  {len(orphaned)} cellules orphelines détectées (pas de code site correspondant)")
-        
-        # Essayer de matcher par nom de ville
-        orphaned_with_site = orphaned.merge(
-            site_mapping[['nom_ville_site', 'nom site']].drop_duplicates(), 
-            left_on='nom_ville_normalized', 
-            right_on='nom_ville_site',
-            how='left',
-            suffixes=('', '_y')
-        )
-        
-        # Remplacer les valeurs manquantes dans df_merged
-        merged_indices = df_merged[df_merged['nom site'].isna()].index
-        if len(merged_indices) > 0 and 'nom site_y' in orphaned_with_site.columns:
-            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site_y'].values
-        elif len(merged_indices) > 0 and 'nom site' in orphaned_with_site.columns:
-            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site'].values
-    
-    # Supprimer les cellules orphelines restantes
-    still_missing = df_merged[df_merged['nom site'].isna()]
-    if len(still_missing) > 0:
-        print(f"\n⚠️  {len(still_missing)} cellules ORPHELINES SUPPRIMÉES (pas de site correspondant):")
-        for idx, row in still_missing.iterrows():
+        print(f"\n⚠️  {len(orphaned)} cellules ORPHELINES SUPPRIMÉES (pas de MTN Name correspondant):")
+        for idx, row in orphaned.iterrows():
             print(f"   🗑️  Suppression: {row['nom cellule']} | Ville: {row['nom_ville']} | Code site: {row['code site']}")
         
-        # Supprimer les cellules orphelines
         df_merged = df_merged[df_merged['nom site'].notna()].copy()
         print(f"\n✅ {len(df_merged)} cellules conservées après suppression des orphelines")
     else:
         print(f"\n✅ Toutes les cellules ({len(df_merged)}) ont un site correspondant!")
     
+    
     # Ajouter la colonne WCDMA_Cell
     df_merged['WCDMA_Cell'] = 'WCDMA_Cell'
     
-    # Colonnes nécessaires pour la feuille 3G (sans STATUT)
-    cols = ['WCDMA_Cell', 'code site', 'nom cellule', 'cellId', 'Layer_type']
+    # Colonnes nécessaires pour la feuille 3G (avec nom du site pour vérification)
+    cols = ['WCDMA_Cell', 'code site', 'nom site', 'nom cellule', 'cellId', 'Layer_type']
     result = df_merged[cols].copy()
 
     
-    # 🔤 TRIER PAR NOM DE CELLULE (ORDRE ALPHABÉTIQUE)
-    result = result.sort_values('nom cellule').reset_index(drop=True)
+    # 🔤 TRIER PAR SITE PUIS PAR NOM DE CELLULE (pour grouper les cellules par site)
+    result = result.sort_values(['nom site', 'nom cellule']).reset_index(drop=True)
     
-    print(f"✅ Transformation cellules: {len(result)} lignes (triées par nom)")
+    print(f"✅ Transformation cellules: {len(result)} lignes (triées par site puis par nom)")
     return result
 
 
@@ -251,58 +239,53 @@ def transform_gsm_cell_data(df, site_df_raw):
     df_selected['code site'] = df_selected['BTS Name'].apply(extract_code_site_from_bts_name)
     print(f"❔ Codes sites extraits: {df_selected['code site'].unique()}")
     
-    # Créer un mapping site
+    # Créer un mapping site basé sur le MTN Name (clé de fusion)
     site_mapping = site_df_raw[['MTN ID', 'MTN Name']].copy()
-    site_mapping.columns = ['code site', 'MTN Name']
-    site_mapping['nom_ville_site'] = site_mapping['MTN Name'].astype(str).str.strip().str.lower()
-    site_mapping['nom site'] = '2G_' + site_mapping['MTN Name'].astype(str)
-    print(f"\n📍 Mapping sites disponibles:")
-    print(f"   Codes sites: {site_mapping['code site'].unique()}")
+    site_mapping.columns = ['code site', 'nom_ville_mtn']  # MTN Name = clé de fusion
+    
+    # Normaliser le MTN Name pour la comparaison
+    site_mapping['nom_ville_mtn_normalized'] = site_mapping['nom_ville_mtn'].astype(str).str.strip().str.lower()
+    site_mapping['nom site'] = '2G_' + site_mapping['nom_ville_mtn'].astype(str)
+    
+    print(f"\n📍 Mapping sites disponibles (par MTN Name):")
+    print(f"   MTN Names: {site_mapping['nom_ville_mtn'].unique()}")
+    print(f"   Sites finaux: {site_mapping['nom site'].unique()}")
     
     # Normaliser les noms de villes
     df_selected['nom_ville_normalized'] = df_selected['nom_ville'].astype(str).str.strip().str.lower()
     
-    # Fusion par code site
-    print(f"\n🔗 Fusion par CODE SITE...")
+    # Fusion principale: Par MTN Name (ville extraite du Cell Name)
+    print(f"\n🔗 Fusion par MTN NAME (ville du Cell Name ↔ MTN Name du site)...")
     df_merged = df_selected.merge(
-        site_mapping[['code site', 'nom site']], 
-        on='code site', 
+        site_mapping[['nom_ville_mtn_normalized', 'nom site']], 
+        left_on='nom_ville_normalized', 
+        right_on='nom_ville_mtn_normalized',
         how='left'
     )
     
-    # Fusion par nom de ville pour les orphelines
-    orphaned = df_merged[df_merged['nom site'].isna()].copy()
-    if len(orphaned) > 0:
-        print(f"   ⚠️  {len(orphaned)} cellules orphelines détectées")
-        orphaned_with_site = orphaned.merge(
-            site_mapping[['nom_ville_site', 'nom site']].drop_duplicates(), 
-            left_on='nom_ville_normalized', 
-            right_on='nom_ville_site',
-            how='left',
-            suffixes=('', '_y')
-        )
-        merged_indices = df_merged[df_merged['nom site'].isna()].index
-        if len(merged_indices) > 0 and 'nom site_y' in orphaned_with_site.columns:
-            df_merged.loc[merged_indices, 'nom site'] = orphaned_with_site['nom site_y'].values
+    # Identifier les cellules orphelines
+    print(f"🔗 Vérification des orphelines...")
+    orphaned = df_merged[df_merged['nom site'].isna()]
     
-    # Supprimer les cellules orphelines
-    still_missing = df_merged[df_merged['nom site'].isna()]
-    if len(still_missing) > 0:
-        print(f"\n⚠️  {len(still_missing)} cellules GSM ORPHELINES SUPPRIMÉES:")
+    # Supprimer les cellules orphelines (pas de matching avec MTN Name)
+    if len(orphaned) > 0:
+        print(f"\n⚠️  {len(orphaned)} cellules GSM ORPHELINES SUPPRIMÉES (pas de MTN Name correspondant):")
         df_merged = df_merged[df_merged['nom site'].notna()].copy()
         print(f"✅ {len(df_merged)} cellules GSM conservées")
+    else:
+        print(f"\n✅ Toutes les cellules GSM ({len(df_merged)}) ont un site correspondant!")
     
     # Ajouter la colonne GSM_Cell
     df_merged['GSM_Cell'] = 'GSM_Cell'
     
-    # Colonnes finales
-    cols = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency']
+    # Colonnes finales (avec nom du site pour vérification)
+    cols = ['GSM_Cell', 'code site', 'nom site', 'nom cellule', 'cellId', 'BCCH Frequency']
     result = df_merged[cols].copy()
     
-    # Trier par nom
-    result = result.sort_values('nom cellule').reset_index(drop=True)
+    # Trier par site puis par nom (pour grouper les cellules par site)
+    result = result.sort_values(['nom site', 'nom cellule']).reset_index(drop=True)
     
-    print(f"✅ Transformation cellules GSM: {len(result)} lignes (triées par nom)")
+    print(f"✅ Transformation cellules GSM: {len(result)} lignes (triées par site puis par nom)")
     return result
 
 

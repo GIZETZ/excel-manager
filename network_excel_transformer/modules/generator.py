@@ -149,7 +149,7 @@ def generate_gsm_cells_excel(cell_df, template_path, output_path):
     ws.title = "CELLS"
     
     # En-têtes avec formatage bleu
-    headers = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency']
+    headers = ['GSM_Cell', 'code site', 'nom site', 'nom cellule', 'cellId', 'BCCH Frequency']
     for col_idx, header in enumerate(headers, 1):
         cell = ws.cell(row=1, column=col_idx)
         cell.value = header
