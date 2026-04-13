@@ -148,11 +148,10 @@ def generate_gsm_cells_excel(cell_df, template_path, output_path):
     ws = wb.active
     ws.title = "CELLS"
     
-    # En-têtes avec formatage bleu
-    headers = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency']
-    for col_idx, header in enumerate(headers, 1):
+    # Écrire les en-têtes dynamiquement depuis les colonnes du DataFrame
+    for col_idx, col_name in enumerate(cell_df.columns, 1):
         cell = ws.cell(row=1, column=col_idx)
-        cell.value = header
+        cell.value = col_name
         cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
         cell.font = Font(bold=True, color="FFFFFF")
         cell.alignment = Alignment(horizontal="center", vertical="center")
@@ -165,7 +164,7 @@ def generate_gsm_cells_excel(cell_df, template_path, output_path):
             cell.alignment = Alignment(horizontal="center", vertical="center")
     
     # Ajuster les largeurs
-    for col_idx in range(1, len(headers) + 1):
+    for col_idx in range(1, len(cell_df.columns) + 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = 20
     
     wb.save(output_path)
@@ -173,6 +172,114 @@ def generate_gsm_cells_excel(cell_df, template_path, output_path):
 
 
 def generate_gsm_excel(site_df, cell_df, output_path_sites, output_path_cells):
+    """Génère deux fichiers Excel pour 2G GSM: SITES et CELLULES."""
+    print(f"\n🔄 Génération des fichiers 2G GSM...")
+    
+    # Générer fichier SITES GSM
+    print(f"\n📍 Génération fichier SITES GSM...")
+    generate_gsm_sites_excel(site_df, None, output_path_sites)
+    
+    # Générer fichier CELLULES GSM
+    print(f"\n📍 Génération fichier CELLULES GSM...")
+    generate_gsm_cells_excel(cell_df, None, output_path_cells)
+    
+    print(f"\n✅ Fichiers GSM 2G générés avec succès!")
+    print(f"   - SITES: {output_path_sites}")
+    print(f"   - CELLULES: {output_path_cells}")
+
+
+def generate_lte_sites_excel(site_df, template_path, output_path):
+    """Génère le fichier SITES pour 4G LTE."""
+    print(f"📝 Création workbook SITES LTE 4G...")
+    print(f"   DataFrame reçu: {len(site_df)} lignes, colonnes: {list(site_df.columns)}")
+    
+    # Supprimer le fichier existant pour éviter les conflits
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    if os.path.exists(output_path):
+        os.remove(output_path)
+        print(f"   Ancien fichier supprimé: {output_path}")
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "SITES"
+    
+    # Écrire les en-têtes
+    for col_idx, col_name in enumerate(site_df.columns, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.value = col_name
+        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajouter les données
+    for row_idx, row in enumerate(site_df.values, 2):
+        for col_idx, value in enumerate(row, 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajuster les largeurs
+    for col_idx in range(1, len(site_df.columns) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 20
+    
+    wb.save(output_path)
+    print(f"   ✅ Fichier SITES LTE créé: {output_path} ({len(site_df)} sites)")
+
+
+def generate_lte_cells_excel(cell_df, template_path, output_path):
+    """Génère le fichier CELLULES pour 4G LTE."""
+    print(f"📝 Création workbook CELLULES LTE 4G...")
+    print(f"   DataFrame reçu: {len(cell_df)} lignes, colonnes: {list(cell_df.columns)}")
+    
+    # Supprimer le fichier existant pour éviter les conflits
+    os.makedirs(os.path.dirname(output_path) or '.', exist_ok=True)
+    if os.path.exists(output_path):
+        os.remove(output_path)
+        print(f"   Ancien fichier supprimé: {output_path}")
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "CELLS"
+    
+    # Écrire les en-têtes dynamiquement depuis les colonnes du DataFrame
+    for col_idx, col_name in enumerate(cell_df.columns, 1):
+        cell = ws.cell(row=1, column=col_idx)
+        cell.value = col_name
+        cell.fill = PatternFill(start_color="366092", end_color="366092", fill_type="solid")
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajouter les données
+    for row_idx, row in enumerate(cell_df.values, 2):
+        for col_idx, value in enumerate(row, 1):
+            cell = ws.cell(row=row_idx, column=col_idx)
+            cell.value = value
+            cell.alignment = Alignment(horizontal="center", vertical="center")
+    
+    # Ajuster les largeurs
+    for col_idx in range(1, len(cell_df.columns) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 20
+    
+    wb.save(output_path)
+    print(f"   ✅ Fichier CELLULES LTE créé: {output_path} ({len(cell_df)} cellules)")
+
+
+def generate_lte_excel(site_df, cell_df, output_path_sites, output_path_cells):
+    """Génère deux fichiers Excel pour 4G LTE: SITES et CELLULES."""
+    print(f"\n🔄 Génération des fichiers 4G LTE...")
+    
+    # Générer fichier SITES LTE
+    print(f"\n📍 Génération fichier SITES LTE...")
+    generate_lte_sites_excel(site_df, None, output_path_sites)
+    
+    # Générer fichier CELLULES LTE
+    print(f"\n📍 Génération fichier CELLULES LTE...")
+    generate_lte_cells_excel(cell_df, None, output_path_cells)
+    
+    print(f"\n✅ Fichiers LTE 4G générés avec succès!")
+    print(f"   - SITES: {output_path_sites}")
+    print(f"   - CELLULES: {output_path_cells}")
+
     """Orchestre la génération des fichiers GSM 2G."""
     print(f"\n🎯 Génération fichiers 2G GSM...")
     

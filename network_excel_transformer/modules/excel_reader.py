@@ -187,6 +187,93 @@ def read_gsm_source(file_path):
         sites_df = pd.read_excel(xls, sheet_name=0) if len(xls.sheet_names) > 0 else pd.DataFrame()
     
     if cells_df is None:
+        print(f"\n⚠️  Aucune cellule détectée, utilisation feuille 1 par défaut")
+        cells_df = pd.read_excel(xls, sheet_name=1) if len(xls.sheet_names) > 1 else pd.DataFrame()
+    
+    print(f"\n✅ Résultat final:")
+    print(f"   Sites: {len(sites_df)} lignes, {len(sites_df.columns)} colonnes")
+    print(f"   Cellules: {len(cells_df)} lignes, {len(cells_df.columns)} colonnes")
+    
+    return sites_df, cells_df
+
+
+def read_lte_source(file_path):
+    """Lit le fichier LTE CELL Info.xls et retourne sites et cellules.
+    
+    Stratégie: 
+    - Feuille SITES: plus petite (<200 lignes), avec colonnes MTN ID / Localités
+    - Feuille CELLULES: plus grande (>200 lignes), avec Cell Name / Physical Cell ID
+    """
+    # Lire toutes les feuilles
+    xls = pd.ExcelFile(file_path)
+    print(f"📄 Feuilles détectées: {xls.sheet_names}")
+    
+    # Lire toutes les feuilles non-vides
+    all_sheets = []
+    for sheet_idx, sheet_name in enumerate(xls.sheet_names):
+        df = pd.read_excel(xls, sheet_name=sheet_idx)
+        if len(df) > 0 and len(df.columns) > 0:
+            all_sheets.append((df, sheet_idx, sheet_name))
+            print(f"\n📋 Feuille {sheet_idx} ({sheet_name}): {len(df)} lignes, {len(df.columns)} colonnes")
+            print(f"   Colonnes: {list(df.columns)}")
+    
+    sites_df = None
+    cells_df = None
+    
+    # Stratégie 1: Prioriser la TAILLE (feuille plus petite = sites)
+    if len(all_sheets) >= 2:
+        sorted_sheets = sorted(all_sheets, key=lambda x: len(x[0]))
+        smaller_df, smaller_idx, smaller_name = sorted_sheets[0]
+        larger_df, larger_idx, larger_name = sorted_sheets[-1]
+        
+        print(f"\n🔍 Attribution par taille:")
+        print(f"   Feuille plus petite ({len(smaller_df)} lignes) → SITES")
+        print(f"   Feuille plus grande ({len(larger_df)} lignes) → CELLULES")
+        
+        sites_df = smaller_df
+        cells_df = larger_df
+    
+    elif len(all_sheets) == 1:
+        # S'il n'y a qu'une feuille, chercher les colonnes pour déterminer son rôle
+        print(f"\n⚠️  Une seule feuille trouvée. Détection par colonnes...")
+        df = all_sheets[0][0]
+        cols_lower = [str(col).lower().strip() for col in df.columns]
+        
+        has_cell_indicators = any('cell name' in col or 'cell id' in col or 'local cell' in col 
+                                  for col in cols_lower)
+        has_site_indicators = any('mtn' in col or 'localit' in col or 'latitude' in col or 'longitude' in col 
+                                  for col in cols_lower)
+        
+        if has_cell_indicators:
+            cells_df = df
+            print(f"   → Détecté comme CELLULES")
+        elif has_site_indicators:
+            sites_df = df
+            print(f"   → Détecté comme SITES")
+        else:
+            # Par défaut, mettre en sites
+            sites_df = df
+            print(f"   → Assigné par défaut aux SITES")
+    
+    # Fallback final pour éviter les DataFrames None
+    if sites_df is None:
+        print(f"\n⚠️  Aucun site LTE détecté, utilisation feuille 0 par défaut")
+        sites_df = pd.read_excel(xls, sheet_name=0) if len(xls.sheet_names) > 0 else pd.DataFrame()
+    
+    if cells_df is None:
+        print(f"\n⚠️  Aucune cellule LTE détectée, utilisation feuille 1 par défaut")
+        cells_df = pd.read_excel(xls, sheet_name=1) if len(xls.sheet_names) > 1 else pd.DataFrame()
+    
+    print(f"\n✅ Résultat final LTE:")
+    print(f"   Sites: {len(sites_df)} lignes, {len(sites_df.columns)} colonnes")
+    print(f"   Cellules: {len(cells_df)} lignes, {len(cells_df.columns)} colonnes")
+    print(f"   Colonnes sites: {list(sites_df.columns)}")
+    print(f"   Colonnes cellules: {list(cells_df.columns)}")
+    
+    return sites_df, cells_df
+
+    
+    if cells_df is None:
         print(f"\n⚠️  Aucune cellule GSM détectée, utilisation feuille 1 par défaut")
         cells_df = pd.read_excel(xls, sheet_name=1) if len(xls.sheet_names) > 1 else pd.DataFrame()
     
