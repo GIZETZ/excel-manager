@@ -395,8 +395,11 @@ def transform_gsm_cell_data(df, site_df_raw):
     cell_id_col = find_matching_column(df, ['Cell ID', 'Cell_ID', 'cell id', 'cellId'])
     bts_name_col = find_matching_column(df, ['BTS Name', 'BTS_Name', 'bts', 'bts name'])
     bcch_freq_col = find_matching_column(df, ['BCCH Frequency', 'BCCH_Frequency', 'bcch', 'frequency'])
+    # Ajouter les colonnes Cell CI et Freq. Band
+    cell_ci_col = find_matching_column(df, ['Cell CI', 'Cell_CI', 'cell ci', 'cell_ci'])
+    freq_band_col = find_matching_column(df, ['Freq. Band', 'Freq Band', 'Frequency Band', 'freq band', 'frequency band'])
     
-    print(f"Colonnes détectées: Cell Name={cell_name_col}, Cell ID={cell_id_col}, BTS Name={bts_name_col}, BCCH={bcch_freq_col}")
+    print(f"Colonnes détectées: Cell Name={cell_name_col}, Cell ID={cell_id_col}, BTS Name={bts_name_col}, BCCH={bcch_freq_col}, Cell CI={cell_ci_col}, Freq. Band={freq_band_col}")
     
     if not all([cell_name_col, cell_id_col, bts_name_col]):
         missing = []
@@ -411,14 +414,31 @@ def transform_gsm_cell_data(df, site_df_raw):
         )
     
     # Sélectionner et renommer les colonnes
-    df_selected = df[[cell_name_col, cell_id_col, bts_name_col]].copy()
+    cols_to_select = [cell_name_col, cell_id_col, bts_name_col]
+    df_selected = df[cols_to_select].copy()
     df_selected.columns = ['nom cellule', 'cellId', 'BTS Name']
     
     # Ajouter BCCH Frequency si trouvée
     if bcch_freq_col:
-        df_selected['BCCH Frequency'] = df[[bcch_freq_col]]
+        df_selected['BCCH Frequency'] = df[bcch_freq_col].values
     else:
         df_selected['BCCH Frequency'] = 'N/A'
+    
+    # Ajouter Cell CI si trouvée
+    if cell_ci_col:
+        df_selected['Cell CI'] = df[cell_ci_col].values
+        print(f"   ✅ Colonne 'Cell CI' ajoutée")
+    else:
+        df_selected['Cell CI'] = 'N/A'
+        print(f"   ⚠️  Colonne 'Cell CI' non trouvée")
+    
+    # Ajouter Freq. Band si trouvée
+    if freq_band_col:
+        df_selected['Freq. Band'] = df[freq_band_col].values
+        print(f"   ✅ Colonne 'Freq. Band' ajoutée")
+    else:
+        df_selected['Freq. Band'] = 'N/A'
+        print(f"   ⚠️  Colonne 'Freq. Band' non trouvée")
     
     # Extraire le nom de ville du Cell Name (avant le tiret)
     df_selected['nom_ville'] = df_selected['nom cellule'].apply(extract_city_name_from_cell)
@@ -482,8 +502,8 @@ def transform_gsm_cell_data(df, site_df_raw):
     df_merged['azimuth'] = df_merged['nom cellule'].apply(calculate_azimuth)
     print(f"\n📐 Azimuth calculés GSM : {df_merged['azimuth'].value_counts().to_dict()}")
     
-    # Colonnes finales (avec azimuth)
-    cols = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency', 'azimuth']
+    # Colonnes finales (avec azimuth, Cell CI et Freq. Band)
+    cols = ['GSM_Cell', 'code site', 'nom cellule', 'cellId', 'BCCH Frequency', 'Cell CI', 'Freq. Band', 'azimuth']
     df_merged['GSM_Cell'] = 'GSM_Cell'
     result = df_merged[cols].copy()
     
@@ -502,38 +522,49 @@ def transform_lte_site_data(df):
     lat_col = find_matching_column(df, ['Lat', 'Latitude', 'lat'])
     long_col = find_matching_column(df, ['Long', 'Longitude', 'long'])
     ne_name_col = find_matching_column(df, ['NE Name', 'ne name', 'eNodeB Name', 'enodeb name'])
-    # Chercher aussi des colonnes de nom de site comme pour 2G/3G (MTN Name, Site Name)
+    # Chercher les colonnes MTN ID (code site) et MTN Name (nom du site) comme pour 2G/3G
+    mtn_id_col = find_matching_column(df, ['MTN ID', 'MTN_ID', 'mtn id', 'mtn_id', 'code site', 'code_site'])
     site_name_col = find_matching_column(df, ['MTN Name', 'Site Name', 'site name', 'site_name', 'nom site', 'nom_site', 'name'])
     
-    print(f"Colonnes détectées: NE Name={ne_name_col}, Lat={lat_col}, Long={long_col}, Site Name={site_name_col}")
+    print(f"Colonnes détectées: MTN ID={mtn_id_col}, Site Name={site_name_col}, Lat={lat_col}, Long={long_col}, NE Name={ne_name_col}")
     
     # Stratégie 1: Si on a lat/long, c'est la source de vérité (comme 2G/3G)
     if lat_col and long_col:
         print(f"✅ Données géographiques trouvées (Lat/Long) - Utilisation comme clé unique")
         # Deduuplicate par lat+long (chaque combinaison = 1 site)
         cols_to_keep = [lat_col, long_col]
-        if ne_name_col:
-            cols_to_keep.insert(0, ne_name_col)
+        if mtn_id_col:
+            cols_to_keep.insert(0, mtn_id_col)
         if site_name_col:
             cols_to_keep.insert(0, site_name_col)
+        if ne_name_col and mtn_id_col is None:
+            cols_to_keep.insert(0, ne_name_col)
         
         df_sites = df[cols_to_keep].drop_duplicates().copy()
         print(f"   Sites uniques par (Lat, Long): {len(df_sites)}")
         
-        # Créer le code site à partir de la première ligne ou de NE Name
-        if ne_name_col:
+        # Créer le code site: utiliser MTN ID si disponible, sinon NE Name, sinon index
+        if mtn_id_col:
+            df_sites['code site'] = df_sites[mtn_id_col].astype(str)
+            print(f"   Code site depuis MTN ID")
+        elif ne_name_col:
             df_sites['code site'] = df_sites[ne_name_col].astype(str).apply(lambda x: x.split('_')[0] if '_' in str(x) else x)
+            print(f"   Code site depuis NE Name")
         else:
             df_sites['code site'] = range(len(df_sites))
+            print(f"   Code site auto-incrémenté")
         
-        # Utiliser la colonne Site Name si disponible, sinon générer depuis NE Name
+        # Utiliser la colonne MTN Name (Site Name) si disponible, sinon générer depuis NE Name
         if site_name_col:
             df_sites['nom site'] = '4G_' + df_sites[site_name_col].astype(str)
+            print(f"   Nom site depuis MTN Name")
         elif ne_name_col:
             df_sites['nom_site_base'] = df_sites[ne_name_col].astype(str).apply(lambda x: x.split('_')[1] if '_' in str(x) and len(str(x).split('_')) > 1 else str(x))
             df_sites['nom site'] = '4G_' + df_sites['nom_site_base'].astype(str)
+            print(f"   Nom site depuis NE Name")
         else:
             df_sites['nom site'] = '4G_Site_' + df_sites['code site'].astype(str)
+            print(f"   Nom site génériques")
         
         df_sites['LTE_Site'] = 'LTE_Site'
         cols = ['LTE_Site', 'nom site', 'code site', lat_col, long_col]
