@@ -96,6 +96,24 @@ def find_matching_column(df, possible_names):
             return col
     return None
 
+def extract_numbers_from_text(text):
+    """Extrait tous les nombres d'un texte (entiers et décimaux)."""
+    if pd.isna(text):
+        return 'N/A'
+    
+    text_str = str(text).strip()
+    if len(text_str) == 0:
+        return 'N/A'
+    
+    # Extraire tous les nombres (entiers et décimaux avec point)
+    numbers = re.findall(r'\d+(?:\.\d+)?', text_str)
+    
+    if numbers:
+        # Retourner les nombres séparés par un slash si plusieurs
+        return ' / '.join(numbers)
+    else:
+        return text_str  # Retourner le texte original s'il n'y a pas de nombres
+
 def transform_site_data(df):
     """Transforme les données de site selon les correspondances UMTS vers DB (3G)."""
     # Afficher les colonnes réelles pour debug
@@ -434,8 +452,8 @@ def transform_gsm_cell_data(df, site_df_raw):
     
     # Ajouter Freq. Band si trouvée
     if freq_band_col:
-        df_selected['Freq. Band'] = df[freq_band_col].values
-        print(f"   ✅ Colonne 'Freq. Band' ajoutée")
+        df_selected['Freq. Band'] = df[freq_band_col].apply(extract_numbers_from_text)
+        print(f"   ✅ Colonne 'Freq. Band' ajoutée (nombres extraits)")
     else:
         df_selected['Freq. Band'] = 'N/A'
         print(f"   ⚠️  Colonne 'Freq. Band' non trouvée")
@@ -611,8 +629,9 @@ def transform_lte_cell_data(df, site_df_raw):
     cell_id_col = find_matching_column(df, ['Cell ID', 'Cell_ID', 'cell id', 'cellId', 'Local cell identity'])
     enodeb_name_col = find_matching_column(df, ['NE Name', 'ne name', 'eNodeB Name', 'enodeb name'])
     physical_cell_id_col = find_matching_column(df, ['Physical cell id', 'Physical_cell_id', 'pci', 'pci'])
+    downlink_earfcn_col = find_matching_column(df, ['Downlink EARFCN', 'Downlink_EARFCN', 'downlink earfcn', 'downlink_earfcn'])
     
-    print(f"Colonnes détectées: Cell Name={cell_name_col}, Cell ID={cell_id_col}, NE Name={enodeb_name_col}, PCI={physical_cell_id_col}")
+    print(f"Colonnes détectées: Cell Name={cell_name_col}, Cell ID={cell_id_col}, NE Name={enodeb_name_col}, PCI={physical_cell_id_col}, Downlink EARFCN={downlink_earfcn_col}")
     
     if not all([cell_name_col, cell_id_col, enodeb_name_col]):
         missing = []
@@ -632,9 +651,17 @@ def transform_lte_cell_data(df, site_df_raw):
     
     # Ajouter Physical Cell ID si trouvée
     if physical_cell_id_col:
-        df_selected['Physical Cell ID'] = df[[physical_cell_id_col]]
+        df_selected['Physical Cell ID'] = df[physical_cell_id_col].values
     else:
         df_selected['Physical Cell ID'] = 'N/A'
+    
+    # Ajouter Downlink EARFCN si trouvée
+    if downlink_earfcn_col:
+        df_selected['Downlink EARFCN'] = df[downlink_earfcn_col].values
+        print(f"   ✅ Colonne 'Downlink EARFCN' ajoutée")
+    else:
+        df_selected['Downlink EARFCN'] = 'N/A'
+        print(f"   ⚠️  Colonne 'Downlink EARFCN' non trouvée")
     
     # Extraire le nom de ville du Cell Name (avant le tiret/underscore)
     df_selected['nom_ville'] = df_selected['nom cellule'].apply(extract_city_name_from_cell)
@@ -693,8 +720,8 @@ def transform_lte_cell_data(df, site_df_raw):
     df_merged['azimuth'] = df_merged['nom cellule'].apply(calculate_azimuth_lte)
     print(f"\n📐 Azimuth calculés LTE : {df_merged['azimuth'].value_counts().to_dict()}")
     
-    # Colonnes finales (avec azimuth)
-    cols = ['LTE_Cell', 'code site', 'nom cellule', 'cellId', 'Physical Cell ID', 'azimuth']
+    # Colonnes finales (avec azimuth et Downlink EARFCN)
+    cols = ['LTE_Cell', 'code site', 'nom cellule', 'cellId', 'Physical Cell ID', 'Downlink EARFCN', 'azimuth']
     df_merged['LTE_Cell'] = 'LTE_Cell'
     result = df_merged[cols].copy()
     
